@@ -30,6 +30,9 @@ public static class DatabaseConfig
         builder.Timeout = config.GetValue("DB_CONNECT_TIMEOUT", 60);
         builder.CommandTimeout = config.GetValue("DB_COMMAND_TIMEOUT", 30);
         builder.ApplicationName ??= "seat-reservation";
+        // We authenticate with a password; don't probe for Kerberos/GSS (the Alpine image has no
+        // libgssapi, which otherwise prints a scary "Cannot load library" line on every start).
+        builder.GssEncryptionMode = GssEncryptionMode.Disable;
         return builder.ConnectionString;
     }
 
