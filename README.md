@@ -4,6 +4,7 @@ A JSON API that sells assigned seats for a show and stays correct when thousands
 no seat sold twice, no user over their limit, no retry booked twice. ASP.NET Core (.NET 10) + PostgreSQL, one service, one database.
 
 - **Live URL:** `https://<your-deployment>` ← _fill in after deploy_
+- **Try it in the browser:** `GET /swagger` (Swagger UI; click **Authorize** and enter `user-123` or the admin token) · OpenAPI: `/openapi/v1.json`
 - **Metrics:** `GET /metrics` (Prometheus) · **Health:** `GET /health/live`, `GET /health/ready`
 - **Design write-up:** [WRITEUP.md](WRITEUP.md) · design docs written before the code: [docs/](docs/)
 
@@ -73,6 +74,9 @@ RESULT: PASS (22 checks)
 ```
 
 ## API
+
+Interactive docs: open **`/swagger`** (e.g. http://localhost:8080/swagger), click **Authorize**, enter a token
+(`admin` to create a show, then any user id such as `user-123` to reserve), and use **Try it out**.
 
 All routes are served at the root (as in the assignment) and also under `/api`. Money is always integer paise.
 
@@ -173,7 +177,7 @@ Each line has `request_id` (the `X-Correlation-ID` header, echoed back and inclu
 ## Tests
 
 ```bash
-dotnet test     # 31 tests against real Postgres via Testcontainers (Docker), or set TEST_DATABASE_URL
+dotnet test     # 33 tests against real Postgres via Testcontainers (Docker), or set TEST_DATABASE_URL
 ```
 Concurrency tests run through the real HTTP pipeline and the database's real locking:
 - 500-way hot seat

@@ -14,6 +14,7 @@ using SeatReservation.Api.Features.Shows.GetShow;
 using SeatReservation.Api.Infrastructure.Authentication;
 using SeatReservation.Api.Infrastructure.Health;
 using SeatReservation.Api.Infrastructure.Observability;
+using SeatReservation.Api.Infrastructure.OpenApi;
 using SeatReservation.Api.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -63,6 +64,8 @@ builder.Services.Configure<JsonOptions>(o =>
 });
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true);
 
+builder.Services.AddApiDocs();
+
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseReadinessCheck>("postgres", tags: ["ready"]);
 
@@ -76,16 +79,20 @@ app.UseHttpMetrics(o => o.ReduceStatusCodeCardinality());
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Swagger UI at /swagger, OpenAPI document at /openapi/v1.json.
+app.UseApiDocs();
+
 app.MapGet("/", () => Results.Ok(new
 {
     service = "seat-reservation",
+    docs = "/swagger",
     endpoints = new[]
     {
         "POST /shows (admin)", "GET /shows/{id}", "POST /shows/{id}/reserve",
         "POST /reservations/{id}/cancel", "GET /reservations/{id}",
         "GET /health/live", "GET /health/ready", "GET /metrics",
     },
-}));
+})).ExcludeFromDescription();
 
 // Liveness: the process is up. Deliberately does not touch the database.
 app.MapHealthChecks("/health/live", new HealthCheckOptions
@@ -104,7 +111,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapMetrics("/metrics");
 
 // The assignment's paths at the root, and the same routes under /api (docs/API.md).
-foreach (var routes in new IEndpointRouteBuilder[] { app, app.MapGroup("/api") })
+// The /api copies are left out of the OpenAPI document so Swagger lists each operation once.
+foreach (var routes in new IEndpointRouteBuilder[] { app, app.MapGroup("/api").ExcludeFromDescription() })
 {
     CreateShowEndpoint.Map(routes);
     GetShowEndpoint.Map(routes);

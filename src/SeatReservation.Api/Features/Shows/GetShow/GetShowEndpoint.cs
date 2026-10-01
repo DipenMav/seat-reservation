@@ -11,7 +11,13 @@ public static class GetShowEndpoint
     // Public read: anyone can see the seat map. An admin token additionally reveals who owns each seat,
     // which is what the burst script uses to verify "no seat confirmed to two users".
     public static void Map(IEndpointRouteBuilder app) =>
-        app.MapGet("/shows/{showId}", HandleAsync).AllowAnonymous();
+        app.MapGet("/shows/{showId}", HandleAsync)
+            .AllowAnonymous()
+            .WithTags("Shows")
+            .WithSummary("Show state: per-seat status and counts")
+            .WithDescription("Public. `available_seats + held_seats + confirmed_seats == total_seats` always holds (`reconciled`). With the admin token, each confirmed seat also shows `reservation_id` and `user_id`.")
+            .Produces<ShowStateResponse>()
+            .Produces<ErrorEnvelope>(StatusCodes.Status404NotFound);
 
     private static async Task<IResult> HandleAsync(string showId, HttpContext ctx, AppDbContext db, CancellationToken ct)
     {

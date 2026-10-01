@@ -7,7 +7,15 @@ namespace SeatReservation.Api.Features.Reservations.Cancel;
 public static class CancelEndpoint
 {
     public static void Map(IEndpointRouteBuilder app) =>
-        app.MapPost("/reservations/{reservationId}/cancel", HandleAsync).RequireAuthorization();
+        app.MapPost("/reservations/{reservationId}/cancel", HandleAsync)
+            .RequireAuthorization()
+            .WithTags("Reservations")
+            .WithSummary("Cancel a reservation (owner only)")
+            .WithDescription("Releases the seats so they can be booked again. Cancelling an already-cancelled reservation returns 200 and changes nothing. Anyone other than the owner gets 403.")
+            .Produces<ReservationDto>()
+            .Produces<ErrorEnvelope>(StatusCodes.Status401Unauthorized)
+            .Produces<ErrorEnvelope>(StatusCodes.Status403Forbidden)
+            .Produces<ErrorEnvelope>(StatusCodes.Status404NotFound);
 
     private static async Task<IResult> HandleAsync(string reservationId, HttpContext ctx, CancelHandler handler)
     {

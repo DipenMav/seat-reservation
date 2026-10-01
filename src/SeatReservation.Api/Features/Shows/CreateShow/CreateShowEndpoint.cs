@@ -3,6 +3,7 @@ using NpgsqlTypes;
 using SeatReservation.Api.Common;
 using SeatReservation.Api.Infrastructure.Authentication;
 using SeatReservation.Api.Infrastructure.Observability;
+using SeatReservation.Api.Infrastructure.OpenApi;
 using SeatReservation.Api.Infrastructure.Persistence;
 
 namespace SeatReservation.Api.Features.Shows.CreateShow;
@@ -15,7 +16,16 @@ public static class CreateShowEndpoint
     public const int MaxSeats = 50_000;
 
     public static void Map(IEndpointRouteBuilder app) =>
-        app.MapPost("/shows", HandleAsync).RequireAuthorization(AuthPolicies.Admin);
+        app.MapPost("/shows", HandleAsync)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .WithTags("Shows")
+            .WithSummary("Create a show (admin)")
+            .WithDescription("Creates the show and every seat in `available` state. `per_user_limit` is optional (default 4). `price_paise` must be an integer.")
+            .WithRequestExample("""{"name":"friday-night","seats":["A1","A2","A3","A12","A13"],"price_paise":25000,"per_user_limit":4}""")
+            .Produces<ShowStateResponse>(StatusCodes.Status201Created)
+            .Produces<ErrorEnvelope>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorEnvelope>(StatusCodes.Status401Unauthorized)
+            .Produces<ErrorEnvelope>(StatusCodes.Status403Forbidden);
 
     private static async Task<IResult> HandleAsync(
         CreateShowRequest? request, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct)

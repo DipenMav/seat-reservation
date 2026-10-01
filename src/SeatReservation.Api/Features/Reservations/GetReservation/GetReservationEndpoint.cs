@@ -8,7 +8,14 @@ namespace SeatReservation.Api.Features.Reservations.GetReservation;
 public static class GetReservationEndpoint
 {
     public static void Map(IEndpointRouteBuilder app) =>
-        app.MapGet("/reservations/{reservationId}", HandleAsync).RequireAuthorization();
+        app.MapGet("/reservations/{reservationId}", HandleAsync)
+            .RequireAuthorization()
+            .WithTags("Reservations")
+            .WithSummary("Get a reservation (owner or admin)")
+            .Produces<ReservationDto>()
+            .Produces<ErrorEnvelope>(StatusCodes.Status401Unauthorized)
+            .Produces<ErrorEnvelope>(StatusCodes.Status403Forbidden)
+            .Produces<ErrorEnvelope>(StatusCodes.Status404NotFound);
 
     private static async Task<IResult> HandleAsync(string reservationId, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct)
     {

@@ -2,6 +2,8 @@ using System.Diagnostics;
 using SeatReservation.Api.Common;
 using SeatReservation.Api.Infrastructure.Authentication;
 using SeatReservation.Api.Infrastructure.Observability;
+using SeatReservation.Api.Infrastructure.OpenApi;
+using Microsoft.AspNetCore.Mvc;
 
 namespace SeatReservation.Api.Features.Reservations.Reserve;
 
@@ -19,10 +21,35 @@ public static class ReserveEndpoint
     public const int MaxSeatsPerRequest = 20;
 
     public static void Map(IEndpointRouteBuilder app) =>
-        app.MapPost("/shows/{showId}/reserve", HandleAsync).RequireAuthorization();
+        app.MapPost("/shows/{showId}/reserve", HandleAsync)
+            .RequireAuthorization()
+            .WithTags("Reservations")
+            .WithSummary("Reserve seats (all-or-nothing, idempotent)")
+            .WithDescription("""
+                The owner is the authenticated user; any `user_id` in the body is ignored.
+                Send the idempotency key in the body (`idempotency_key`) or the `Idempotency-Key` header.
+
+                - **201**: reserved. A retry with the same key and seats returns the *original* reservation with header `Idempotent-Replayed: true`.
+                - **409** `SEAT_UNAVAILABLE`: a requested seat is taken; nothing was reserved.
+                - **409** `USER_LIMIT_EXCEEDED`: would exceed the show's per-user limit.
+                - **409** `IDEMPOTENCY_KEY_REUSED`: same key, different seats.
+                - **400**: duplicate seats, missing key, or a seat not in the show.
+                """)
+            .WithRequestExample("""{"seats":["A12"],"idempotency_key":"9e7c6f2b-9c18-4e7a-91c3-123456789abc"}""")
+            .Produces<ReservationDto>(StatusCodes.Status201Created)
+            .Produces<ErrorEnvelope>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorEnvelope>(StatusCodes.Status401Unauthorized)
+            .Produces<ErrorEnvelope>(StatusCodes.Status404NotFound)
+            .Produces<ErrorEnvelope>(StatusCodes.Status409Conflict)
+            .Produces<ErrorEnvelope>(StatusCodes.Status503ServiceUnavailable);
 
     private static async Task<IResult> HandleAsync(
-        string showId, ReserveRequest? request, HttpContext ctx, ReserveHandler handler, CancellationToken ct)
+        string showId,
+        ReserveRequest? request,
+        [FromHeader(Name = IdempotencyHeader)] string? idempotencyKeyHeader,
+        HttpContext ctx,
+        ReserveHandler handler,
+        CancellationToken ct)
     {
         var started = Stopwatch.GetTimestamp();
         var userId = ctx.User.UserId();
@@ -38,7 +65,7 @@ public static class ReserveEndpoint
         else
         {
             log.ShowId = id;
-            var (seats, key, error) = Normalize(request, ctx.Request.Headers[IdempotencyHeader].ToString());
+            var (seats, key, error) = Normalize(request, idempotencyKeyHeader ?? "");
             outcome = error is not null
                 ? new ReserveDeclined(400, ErrorCodes.ValidationError, DeclineReason.InvalidRequest, error)
                 : await handler.HandleAsync(id, userId, seats!, key!, ct);
