@@ -53,7 +53,10 @@ public sealed class ReserveHandler(NpgsqlDataSource db)
         if (pre is null)
             return Declined.ShowNotFound();
         if (pre.IdempotencyHash is not null)
-            return await ResolveExistingKeyAsync(pre.IdempotencyHash, pre.IdempotencyReservationId!.Value, requestHash, ct);
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            return await ResolveExistingKeyAsync(conn, pre.IdempotencyHash, pre.IdempotencyReservationId!.Value, requestHash, ct);
+        }
         if (pre.KnownSeats < sortedSeats.Count)
             return Declined.UnknownSeat();
         if (pre.ReservedCount + sortedSeats.Count > pre.PerUserLimit)
@@ -122,7 +125,9 @@ public sealed class ReserveHandler(NpgsqlDataSource db)
             {
                 // Another request with this key committed first (we waited for it on the unique index).
                 await tx.RollbackAsync(ct);
-                return await ResolveKeyAfterConflictAsync(showId, userId, key, requestHash, attempt, ct);
+                // Resolve on THIS connection. Opening a second one while holding this one can
+                // starve the pool: N losers each holding one and waiting for another.
+                return await ResolveKeyAfterConflictAsync(conn, showId, userId, key, requestHash, attempt, ct);
             }
 
             if (claim.BatchCommands[2].RecordsAffected == 0)
@@ -170,11 +175,12 @@ public sealed class ReserveHandler(NpgsqlDataSource db)
             new ReservationDto(reservationId, showId, userId, seats, amount, "confirmed", now), attempt);
     }
 
-    private async Task<ReserveOutcome> ResolveKeyAfterConflictAsync(
-        Guid showId, string userId, string key, string requestHash, int attempt, CancellationToken ct)
+    private static async Task<ReserveOutcome> ResolveKeyAfterConflictAsync(
+        NpgsqlConnection conn, Guid showId, string userId, string key, string requestHash, int attempt, CancellationToken ct)
     {
-        await using var cmd = db.CreateCommand(
-            "SELECT request_hash, reservation_id FROM idempotency_keys WHERE show_id = $1 AND user_id = $2 AND idempotency_key = $3");
+        await using var cmd = new NpgsqlCommand(
+            "SELECT request_hash, reservation_id FROM idempotency_keys WHERE show_id = $1 AND user_id = $2 AND idempotency_key = $3",
+            conn);
         cmd.Parameters.Add(Sql.P(showId));
         cmd.Parameters.Add(Sql.P(userId));
         cmd.Parameters.Add(Sql.P(key));
@@ -185,16 +191,15 @@ public sealed class ReserveHandler(NpgsqlDataSource db)
         var storedHash = reader.GetString(0);
         var reservationId = reader.GetGuid(1);
         await reader.DisposeAsync();
-        return await ResolveExistingKeyAsync(storedHash, reservationId, requestHash, ct) with { Attempts = attempt };
+        return await ResolveExistingKeyAsync(conn, storedHash, reservationId, requestHash, ct) with { Attempts = attempt };
     }
 
-    private async Task<ReserveOutcome> ResolveExistingKeyAsync(
-        string storedHash, Guid reservationId, string requestHash, CancellationToken ct)
+    private static async Task<ReserveOutcome> ResolveExistingKeyAsync(
+        NpgsqlConnection conn, string storedHash, Guid reservationId, string requestHash, CancellationToken ct)
     {
         if (!string.Equals(storedHash, requestHash, StringComparison.Ordinal))
             return Declined.IdempotencyConflict();
 
-        await using var conn = await db.OpenConnectionAsync(ct);
         var reservation = await ReservationQueries.LoadAsync(conn, reservationId, ct)
             ?? throw new InvalidOperationException($"Idempotency key points at missing reservation {reservationId}.");
         return new ReserveReplayed(reservation);
