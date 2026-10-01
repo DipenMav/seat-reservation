@@ -120,7 +120,14 @@ for (var i = 0; i < remaining; i++)
     if (i % 3 != 2)
         plan.Add(o with { Kind = "retry_same" });
     else
-        plan.Add(o with { Kind = "retry_diff", Seats = [coldSeats[rng.Next(coldSeats.Length)]] });
+    {
+        // Must really be a different body: a random seat equal to the original would be a
+        // legitimate same-body retry (correctly replayed), not a same-key/different-body case.
+        string other;
+        do other = coldSeats[rng.Next(coldSeats.Length)];
+        while (o.Seats.Length == 1 && o.Seats[0] == other);
+        plan.Add(o with { Kind = "retry_diff", Seats = [other] });
+    }
 }
 
 var shuffled = plan.OrderBy(_ => rng.Next()).ToArray();
@@ -197,11 +204,17 @@ report.Check("no seat granted to two reservations (responses)", doubleSold.Count
     doubleSold.Count == 0 ? $"{seatToReservations.Count:N0} seats granted once each" : $"{doubleSold.Count} seats: {string.Join(",", doubleSold.Take(5).Select(k => k.Key))}");
 
 var keyGroups = allSuccess.GroupBy(r => (r.Plan.User, r.Plan.Key)).ToList();
-var keyViolations = keyGroups.Count(g => g.Select(r => r.ReservationId).Distinct().Count() > 1);
-var diffBodyBooked = results.Count(r => r.Plan.Kind == "retry_diff" && r.Status == 201 &&
-    keyGroups.Any(g => g.Key == (r.Plan.User, r.Plan.Key) && g.Any(o => o.Plan.Kind != "retry_diff")));
-report.Check("idempotency: one reservation per key", keyViolations == 0 && diffBodyBooked == 0,
-    $"{keyGroups.Count:N0} keys succeeded, {results.Count(r => r.Replayed):N0} replays, {dist.GetValueOrDefault("idempotency_conflict"):N0} same-key/different-body rejected");
+// (a) a key never maps to two different reservations;
+// (b) a 201 always carries exactly the seats that request asked for — a same-key/different-body
+//     request must get 409, never someone's earlier reservation for other seats.
+var multiReservationKeys = keyGroups.Where(g => g.Select(r => r.ReservationId).Distinct().Count() > 1).ToList();
+var wrongBody = allSuccess.Where(r => !r.Plan.Seats.Order(StringComparer.Ordinal).SequenceEqual(r.Seats)).ToList();
+var idemExamples = multiReservationKeys.Take(3).Select(g => $"key {g.Key.Key} -> {string.Join("/", g.Select(r => r.ReservationId).Distinct())}")
+    .Concat(wrongBody.Take(3).Select(r => $"asked [{string.Join(",", r.Plan.Seats)}] got [{string.Join(",", r.Seats)}]"));
+report.Check("idempotency: one reservation per key", multiReservationKeys.Count == 0 && wrongBody.Count == 0,
+    multiReservationKeys.Count == 0 && wrongBody.Count == 0
+        ? $"{keyGroups.Count:N0} keys succeeded, {results.Count(r => r.Replayed):N0} replays, {dist.GetValueOrDefault("idempotency_conflict"):N0} same-key/different-body rejected"
+        : $"{multiReservationKeys.Count} keys with >1 reservation, {wrongBody.Count} 201s for a different body: {string.Join("; ", idemExamples)}");
 
 report.Check("identity: every 201 belongs to the token's user", allSuccess.All(r => r.UserId == r.Plan.User),
     $"{results.Count(r => r.Plan.SpoofAs is not null && r.Status == 201)} spoofed bodies booked as the caller");
