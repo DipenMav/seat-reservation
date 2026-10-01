@@ -112,7 +112,7 @@ public sealed class ReserveHandler(NpgsqlDataSource db)
             claim.BatchCommands.Add(Sql.Command(
                 """
                 INSERT INTO show_user_limits (show_id, user_id, reserved_count)
-                VALUES ($1, $2, $3)
+                SELECT $1, $2, $3 WHERE $3 <= $4
                 ON CONFLICT (show_id, user_id) DO UPDATE
                    SET reserved_count = show_user_limits.reserved_count + EXCLUDED.reserved_count
                  WHERE show_user_limits.reserved_count + EXCLUDED.reserved_count <= $4
