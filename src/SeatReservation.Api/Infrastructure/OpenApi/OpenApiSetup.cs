@@ -24,9 +24,12 @@ public static class OpenApiSetup
                     Sells assigned seats under heavy contention: no seat is ever sold twice, the per-user limit holds
                     under concurrency, and a retried request (same idempotency key) never books twice.
 
-                    **Auth:** the bearer token *is* the identity. Click **Authorize** and enter `user-123` to act as
-                    user `user-123`, or the admin token (default `admin`) to create shows. Any `user_id` in a request
-                    body is ignored.
+                    **Auth:** the bearer token *is* the identity. Click **Authorize** and type the token itself
+                    (Swagger adds the `Bearer ` prefix):
+                    - `admin` to create shows (locally; on a deployment it is whatever the `ADMIN_TOKEN` setting holds)
+                    - any user id, e.g. `user-123`, to reserve and cancel as that user
+
+                    Any `user_id` in a request body is ignored.
 
                     **Money** is always integer paise (`25000` = ₹250.00).
 
@@ -41,7 +44,7 @@ public static class OpenApiSetup
             {
                 Type = SecuritySchemeType.Http,
                 Scheme = "bearer",
-                Description = "Any user id (e.g. `user-123`) acts as that user; the ADMIN_TOKEN acts as admin.",
+                Description = "Type `admin` to act as admin (locally; on a deployment, the value of the ADMIN_TOKEN setting), or any user id such as `user-123` to act as that user.",
             };
             doc.Security = [new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference("Bearer", doc)] = [] }];
             return Task.CompletedTask;
