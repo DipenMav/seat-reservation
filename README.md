@@ -3,9 +3,12 @@
 A JSON API that sells assigned seats for a show and stays correct when thousands of buyers stampede the same seats at once:
 no seat sold twice, no user over their limit, no retry booked twice. ASP.NET Core (.NET 10) + PostgreSQL, one service, one database.
 
-- **Live URL:** `https://<your-deployment>` ← _fill in after deploy_
-- **Try it in the browser:** `GET /swagger` (Swagger UI; click **Authorize** and enter `user-123` or the admin token) · OpenAPI: `/openapi/v1.json`
-- **Metrics:** `GET /metrics` (Prometheus) · **Health:** `GET /health/live`, `GET /health/ready`
+- **Live URL:** https://seat-reservation-7wkc.onrender.com (Render, free tier; the first request after idle is a ~30–60 s cold start)
+- **Try it in the browser:** https://seat-reservation-7wkc.onrender.com/swagger (click **Authorize** and enter `user-123`, or the admin token to create shows) · OpenAPI: [/openapi/v1.json](https://seat-reservation-7wkc.onrender.com/openapi/v1.json)
+- **Metrics (public):** https://seat-reservation-7wkc.onrender.com/metrics
+- **Health:** [/health/live](https://seat-reservation-7wkc.onrender.com/health/live) · [/health/ready](https://seat-reservation-7wkc.onrender.com/health/ready)
+- **Live logs under load (screen recording):** _<link to recording>_
+- **Admin token:** shared in the submission email (it is not committed to this repo)
 - **Design write-up:** [WRITEUP.md](WRITEUP.md) · design docs written before the code: [docs/](docs/)
 
 ## Run it (clean checkout)
@@ -51,7 +54,40 @@ While the burst runs it samples `GET /shows/{id}` to check the invariant *during
 
 The exit code is non-zero if any check fails, and a JSON summary is written to `burst-results/`.
 
-Result against the local Docker stack (Apple M-series laptop):
+### Result against the live deployment
+
+`./burst.sh https://seat-reservation-7wkc.onrender.com --admin-token <token>`, 20,000 requests at 500 concurrency, on Render's **free tier (~0.1 vCPU)**:
+
+```
+Outcome distribution
+  confirmed                1,619
+  idempotent_replay          344
+  seat_taken              17,446
+  per_user_limit             305
+  idempotency_conflict       286
+  other_4xx                    0
+  5xx                          0
+  transport_error              0
+  total                   20,000
+Duration          221.48s  (90 req/s)
+Latency (client)  p50 4,691 ms   p95 11,965 ms   p99 14,508 ms
+  [PASS] zero 5xx — 0 responses
+  [PASS] hot seat A12: exactly one 201 — 1 winner(s), 1599 declined (1599 x 409)
+  ... (A13–A16 identical)
+  [PASS] idempotency: one reservation per key — 1,619 keys succeeded, 344 replays, 286 same-key/different-body rejected
+  [PASS] final reconciliation: available + held + confirmed == total — 58 + 0 + 1942 = 2000 (total 2000)
+  [PASS] reconciliation held during the burst — 21 snapshots, 0 violations
+  [PASS] per-user limit (4) holds — max seats held by one user = 4
+  [PASS] metrics: counters match observed outcomes — confirmed 1619 vs 1619, seat_taken 17446 vs 17446, replay 344 vs 344
+  [PASS] cancel: owner cancels, seat re-bookable — cancelled 5/5, re-booked 5/5
+RESULT: PASS (22 checks)
+```
+
+The latency is queueing, not failure. ~0.1 vCPU works through 500 in-flight requests at ~90 req/s, and nothing errors or
+times out while it does. Correctness does not depend on speed: every seat decision is still a single guarded database write.
+On more CPU the same image does ~7,000 req/s (below).
+
+### Result against the local Docker stack (Apple M-series laptop)
 
 ```
 Outcome distribution
