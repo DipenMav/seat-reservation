@@ -1,0 +1,47 @@
+# What should wake someone at 2am. seat_taken spikes are NOT here: that is an on-sale working.
+groups:
+  - name: seat-reservation
+    rules:
+      - alert: ReconciliationDrift              # sev1: correctness bug, possible double-sell / lost seat
+        expr: max(reconciliation_drift) > 0
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: "Seat counts disagree ({{ $labels.check }} = {{ $value }}). Freeze sales, investigate."
+
+      - alert: ReserveServerErrors
+        expr: |
+          sum(rate(http_request_duration_seconds_count{endpoint=~".*/reserve", code="5xx"}[5m]))
+            / clamp_min(sum(rate(http_request_duration_seconds_count{endpoint=~".*/reserve"}[5m])), 1e-9) > 0.005
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "More than 0.5% of reserve requests are 5xx (DB down, pool exhausted, or a bug)."
+
+      - alert: NotReady
+        expr: up{job="seat-reservation"} == 0 or probe_success{job="seat-reservation-ready"} == 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: "Service down or /health/ready failing (Postgres unreachable)."
+
+      - alert: ReserveLatencyHigh
+        expr: histogram_quantile(0.99, sum by (le) (rate(reservation_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "p99 reserve latency above 2s: hot-row lock queues or pool saturation."
+
+      - alert: TransactionRetriesSpiking
+        expr: rate(reservation_transaction_retries_total[5m]) > 1
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Deadlock/serialization retries: a lock-ordering regression?"
+
+      - alert: SeatMetricsStale
+        expr: time() - metrics_db_collect_last_success_timestamp_seconds > 300
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Seat gauges have not refreshed for 5 minutes; dashboards are lying."

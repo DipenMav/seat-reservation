@@ -1,0 +1,31 @@
+# fly launch --no-deploy --copy-config ; fly postgres create ; fly postgres attach <pg-app> ; fly secrets set ADMIN_TOKEN=... ; fly deploy
+app = "seat-reservation"
+primary_region = "bom"
+
+[env]
+  PORT = "8080"
+  DB_MAX_POOL_SIZE = "40"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Fly's default hard_limit is 25 concurrent requests per machine; a stampede needs far more.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 2000
+    hard_limit = 5000
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health/ready"
+    interval = "10s"
+    timeout = "3s"
+    grace_period = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
